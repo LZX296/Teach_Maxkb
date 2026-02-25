@@ -421,42 +421,148 @@ const parseAIResult = (text) => {
       break;
     }
   }
-  // 如果有严重错误或代码不完整且分数过高（>=50），重新用智能评分
-  if ((hasSevereError || hasIncompleteCode) && score >= 50) {
-    console.log('检测到严重错误但 MaxKB 分数过高(', score, ')，重新计算...');
+  // --- 先分析用户提交的代码本身 ---
+  const analyzeUserCode = () => {
+    const code = codeContent.value;
+    const lines = code.split('\n');
     
-    // 重新计算智能评分
-    const criticalErrors = [
-      /没有.*?(互斥|锁|同步)/,
-      /缺乏.*?(互斥|锁|同步)/,
-      /未使用.*?(互斥|锁|同步)/,
-      /没有加锁/,
-      /不加锁/,
-      /数组越界/,
-      /缓冲区溢出/,
-      /空指针/,
-      /段错误/,
-      /未定义.*?(变量|函数)/,
-      /内存泄漏/,
-      /无法.*?(编译|运行|执行)/,
-      /致命/,
-      /崩溃/,
-      /数据竞争/,
-      /竞态/
-    ];
+    // 统计有效代码行（去掉空行和纯注释行）
+    let effectiveLines = 0;
+    let commentOnlyLines = 0;
+    let emptyLines = 0;
+    let inBlockComment = false;
     
-    let criticalCount = 0;
-    criticalErrors.forEach(pattern => {
-      const matches = text.match(new RegExp(pattern, 'gi'));
-      if (matches) criticalCount += matches.length;
+    lines.forEach(line => {
+      const trimmed = line.trim();
+      
+      // 处理块注释
+      if (inBlockComment) {
+        if (trimmed.includes('*/')) {
+          inBlockComment = false;
+        }
+        commentOnlyLines++;
+        return;
+      }
+      
+      if (trimmed.startsWith('/*')) {
+        inBlockComment = true;
+        commentOnlyLines++;
+        return;
+      }
+      
+      // 空行
+      if (trimmed === '') {
+        emptyLines++;
+        return;
+      }
+      
+      // 单行注释
+      if (trimmed.startsWith('//') || trimmed.startsWith('#')) {
+        commentOnlyLines++;
+        return;
+      }
+      
+      // 有效代码行
+      effectiveLines++;
     });
     
-    // 根据严重错误数量重新评分
-    score = Math.max(20, 100 - criticalCount * 30);
-    if (criticalCount >= 2) {
-      score = Math.min(score, 30);
-    } else if (criticalCount === 1) {
-      score = Math.min(score, 60);
+    // 统计空函数数量（函数定义后只有 { } 或 { // 注释 }）
+    const emptyFunctionPatterns = [
+      /\w+\s*\([^)]*\)\s*\{\s*\}/g,  // func() {}
+      /\w+\s*\([^)]*\)\s*\{\s*\/\/[^\n]*\s*\}/g  // func() { // comment }
+    ];
+    
+    let emptyFunctionCount = 0;
+    emptyFunctionPatterns.forEach(pattern => {
+      const matches = code.match(pattern);
+      if (matches) emptyFunctionCount += matches.length;
+    });
+    
+    return {
+      totalLines: lines.length,
+      effectiveLines,
+      commentOnlyLines,
+      emptyLines,
+      emptyFunctionCount,
+      codeToCommentRatio: effectiveLines / (effectiveLines + commentOnlyLines + 0.1)
+    };
+  };
+  
+  const codeAnalysis = analyzeUserCode();
+  console.log('代码分析结果:', codeAnalysis);
+  
+  // 如果有严重错误或代码不完整且分数过高（>=50），重新用智能评分
+  if ((hasSevereError || hasIncompleteCode) && score >= 50) {
+    console.log('检测到问题但 MaxKB 分数过高(', score, ')，重新计算...');
+    
+    // 优先处理代码不完整的情况 - 这是最严重的问题
+    if (hasIncompleteCode) {
+      // 根据代码实际情况判断
+      // 情况1：有效代码行很少（< 5行），且只有函数名/注释 → 0分
+      if (codeAnalysis.effectiveLines < 5) {
+        score = 0;
+        console.log('代码几乎为空（有效行<5），评分:', score);
+      }
+      // 情况2：有效代码行较少（< 15行），大部分是注释 → 10-20分
+      else if (codeAnalysis.effectiveLines < 15 && codeAnalysis.codeToCommentRatio < 0.3) {
+        score = 15;
+        console.log('代码很少且主要是注释，评分:', score);
+      }
+      // 情况3：有一定代码量，但有函数为空 → 根据比例扣分
+      else if (codeAnalysis.effectiveLines >= 15) {
+        // 按空函数占比扣分
+        const emptyRatio = codeAnalysis.emptyFunctionCount / Math.max(1, codeAnalysis.effectiveLines / 10);
+        if (emptyRatio >= 0.5) {
+          score = Math.max(score * 0.3, 20); // 空函数太多，打3折
+        } else if (emptyRatio >= 0.2) {
+          score = Math.max(score * 0.6, 40); // 部分函数为空，打6折
+        } else {
+          score = Math.max(score * 0.8, 50); // 少量函数为空，打8折
+        }
+        console.log('有一定代码量但有空函数，空函数占比:', emptyRatio, '评分:', score);
+      }
+      // 其他情况
+      else {
+        score = Math.max(score * 0.5, 25);
+        console.log('代码不完整，评分:', score);
+      }
+    } 
+    // 处理严重错误的情况
+    else if (hasSevereError) {
+      const criticalErrors = [
+        /没有.*?(互斥|锁|同步)/,
+        /缺乏.*?(互斥|锁|同步)/,
+        /未使用.*?(互斥|锁|同步)/,
+        /没有加锁/,
+        /不加锁/,
+        /数组越界/,
+        /缓冲区溢出/,
+        /空指针/,
+        /段错误/,
+        /未定义.*?(变量|函数)/,
+        /内存泄漏/,
+        /无法.*?(编译|运行|执行)/,
+        /致命/,
+        /崩溃/,
+        /数据竞争/,
+        /竞态/
+      ];
+      
+      let criticalCount = 0;
+      criticalErrors.forEach(pattern => {
+        const matches = text.match(new RegExp(pattern, 'gi'));
+        if (matches) criticalCount += matches.length;
+      });
+      
+      // 根据严重错误数量重新评分
+      score = Math.max(20, 100 - criticalCount * 30);
+      if (criticalCount >= 2) {
+        score = Math.min(score, 30);
+      } else if (criticalCount === 1) {
+        score = Math.min(score, 60);
+      }
+      
+      console.log('有严重错误，数量:', criticalCount, '，评分:', score);
     }
     
     console.log('重新计算后的分数:', score);

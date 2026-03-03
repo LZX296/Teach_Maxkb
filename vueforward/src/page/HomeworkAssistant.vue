@@ -1,92 +1,284 @@
-﻿<template>
-  <div class="homework-container">
-    <nav class="hw-nav animate__animated animate__fadeIn">
+<template>
+  <div class="practice-container">
+    <!-- 顶部导航 -->
+    <nav class="practice-nav animate__animated animate__fadeIn">
       <div class="nav-brand">
-        <span class="brand-icon">💻</span>
+        <span class="brand-icon">📝</span>
         <div class="brand-text">
-          <div class="main-title">OS 实验与作业空间</div>
-          <div class="sub-title">AI 驱动的代码逻辑诊断</div>
+          <div class="main-title">练习模式</div>
+          <div class="sub-title">基于知识库的智能出题与评分</div>
         </div>
       </div>
       <div class="actions">
+        <select v-model="selectedKnowledge" class="knowledge-select" @change="onKnowledgeChange">
+          <option value="">随机知识库</option>
+          <option v-for="kb in knowledgeList" :key="kb.id" :value="kb.id">
+            {{ kb.name }}
+          </option>
+        </select>
         <button
-          class="btn-submit"
-          @click="submitForAudit"
-          :disabled="isSubmitting || !codeContent.trim()"
-          :class="{ 'is-loading': isSubmitting }"
+          class="btn-generate"
+          @click="generateQuestions"
+          :disabled="isGenerating"
+          :class="{ 'is-loading': isGenerating }"
         >
-          <span v-if="isSubmitting" class="loading-icon"></span>
-          <span>{{ isSubmitting ? 'AI 正在深度批改...' : '提交 AI 批改' }}</span>
+          <span v-if="isGenerating" class="loading-icon"></span>
+          <span>{{ isGenerating ? '正在生成题目...' : '生成题目' }}</span>
         </button>
       </div>
     </nav>
 
+    <!-- 主要内容区 -->
     <div class="main-content">
-      <section class="editor-section">
-        <div class="editor-header">
-          <div class="file-info">
-            <span class="file-icon">C</span>
-            <span class="file-name">os_assignment.c</span>
-          </div>
-          <div class="editor-meta">语言: C | 基于本地 Llama3/Qwen 批改</div>
+      <!-- 左侧：题目列表 -->
+      <section class="questions-section">
+        <div class="section-header">
+          <span class="section-title">题目列表</span>
+          <span class="question-count" v-if="questions.length > 0">
+            共 {{ questions.length }} 道题目
+          </span>
         </div>
 
-        <div class="code-editor-wrapper">
-          <div class="line-numbers">
-            <span v-for="n in lineCount" :key="n">{{ n }}</span>
+        <div class="questions-list" v-if="questions.length > 0">
+          <div
+            v-for="(q, index) in questions"
+            :key="index"
+            class="question-card"
+            :class="{ 'active': currentQuestionIndex === index }"
+            @click="currentQuestionIndex = index"
+          >
+            <div class="question-header">
+              <span class="question-number">第 {{ index + 1 }} 题</span>
+              <span class="question-type" :class="q.type">
+                {{ q.type === 'choice' ? '选择题' : q.type === 'multi' ? '多选题' : q.type === 'judge' ? '判断题' : q.type === 'code' ? '代码题' : q.type === 'short' ? '简答题' : '填空题' }}
+              </span>
+              <!-- 用空心圆/实心圆表示作答状态 -->
+              <span class="answer-status" :class="{ 'answered': q.userAnswer }">
+                {{ q.userAnswer ? '●' : '○' }}
+              </span>
+            </div>
+            <div class="question-preview">{{ q.content.substring(0, 50) }}...</div>
           </div>
-          <textarea
-            v-model="codeContent"
-            class="code-textarea"
-            placeholder="// 在此输入你的操作系统实验代码（如进程同步、内存管理算法等）..."
-            @input="updateLineCount"
-            spellcheck="false"
-          ></textarea>
+        </div>
+
+        <div class="empty-state" v-else>
+          <div class="empty-icon">📚</div>
+          <p>点击上方"生成题目"开始练习</p>
         </div>
       </section>
 
-      <aside class="side-panel">
+      <!-- 右侧：答题区 -->
+      <aside class="answer-section">
         <Transition name="fade-slide" mode="out-in">
-          <div v-if="diagnosticResult" class="result-section" key="result">
-            <div class="result-header">
-              <span class="ai-badge">AI 批改报告</span>
-              <button class="close-btn" @click="diagnosticResult = null">重置</button>
+          <!-- 有题目时显示答题区 -->
+          <div v-if="currentQuestion && !showResult" class="answer-panel" key="answer">
+            <div class="answer-header">
+              <span class="current-label">
+                第 {{ currentQuestionIndex + 1 }} / {{ questions.length }} 题
+              </span>
+              <span class="question-type-badge" :class="currentQuestion.type">
+                {{ currentQuestion.type === 'choice' ? '选择题' : currentQuestion.type === 'multi' ? '多选题' : currentQuestion.type === 'judge' ? '判断题' : currentQuestion.type === 'code' ? '代码题' : currentQuestion.type === 'short' ? '简答题' : '填空题' }}
+              </span>
             </div>
-            <div class="result-content">
-              <div class="score-box">
-                <div class="score-circle" :style="{ borderColor: getScoreColor(diagnosticResult.score) }">
-                  <span class="score">{{ diagnosticResult.score }}</span>
-                  <span class="unit">分</span>
-                </div>
-                <div class="score-label">逻辑完整性评估</div>
-              </div>
-              
-              <div class="analysis-list">
-                <div class="analysis-item" v-for="(item, i) in diagnosticResult.details" :key="i">
-                  <span class="type-tag" :class="item.type">{{ item.type === 'error' ? '逻辑缺陷' : '建议' }}</span>
-                  <p>{{ item.text }}</p>
-                </div>
-              </div>
 
-              <div class="performance-footer">
-                <span>⚡ 本地推理引擎响应成功</span>
+            <div class="question-content">
+              <p>{{ currentQuestion.content }}</p>
+            </div>
+
+            <!-- 选择题选项 -->
+            <div class="options-list" v-if="currentQuestion.type === 'choice'">
+              <label
+                v-for="(option, idx) in currentQuestion.options"
+                :key="idx"
+                class="option-item"
+                :class="{ 'selected': currentQuestion.userAnswer === getOptionLetter(option, idx) }"
+                @click="selectOption(option, idx)"
+              >
+                <span class="option-letter">{{ getOptionLetter(option, idx) }}</span>
+                <span class="option-text">{{ getOptionContent(option) }}</span>
+              </label>
+            </div>
+
+            <!-- 多选题选项 -->
+            <div class="options-list multi" v-else-if="currentQuestion.type === 'multi'">
+              <p class="multi-hint">（多选题，可选择多个答案）</p>
+              <label
+                v-for="(option, idx) in currentQuestion.options"
+                :key="idx"
+                class="option-item"
+                :class="{ 'selected': isMultiSelected(option, idx) }"
+                @click="toggleMultiOption(option, idx)"
+              >
+                <span class="option-checkbox">{{ isMultiSelected(option, idx) ? '☑' : '☐' }}</span>
+                <span class="option-letter">{{ getOptionLetter(option, idx) }}</span>
+                <span class="option-text">{{ getOptionContent(option) }}</span>
+              </label>
+            </div>
+
+            <!-- 判断题选项 -->
+            <div class="judge-options" v-else-if="currentQuestion.type === 'judge'">
+              <label
+                class="judge-item"
+                :class="{ 'selected': currentQuestion.userAnswer === '对' }"
+                @click="currentQuestion.userAnswer = '对'"
+              >
+                <span class="judge-icon">✓</span>
+                <span class="judge-text">正确</span>
+              </label>
+              <label
+                class="judge-item"
+                :class="{ 'selected': currentQuestion.userAnswer === '错' }"
+                @click="currentQuestion.userAnswer = '错'"
+              >
+                <span class="judge-icon">✗</span>
+                <span class="judge-text">错误</span>
+              </label>
+            </div>
+
+            <!-- 代码题输入 -->
+            <div class="code-input" v-else-if="currentQuestion.type === 'code'">
+              <textarea
+                v-model="currentQuestion.userAnswer"
+                placeholder="请在此输入你的代码..."
+                rows="12"
+                class="code-textarea"
+              ></textarea>
+            </div>
+
+            <!-- 简答题输入 -->
+            <div class="short-answer" v-else-if="currentQuestion.type === 'short'">
+              <p class="short-hint">（简答题，需要老师人工评分）</p>
+              <textarea
+                v-model="currentQuestion.userAnswer"
+                placeholder="请输入你的答案..."
+                rows="6"
+              ></textarea>
+            </div>
+
+            <!-- 填空题输入 -->
+            <div class="fill-blank" v-else>
+              <textarea
+                v-model="currentQuestion.userAnswer"
+                placeholder="请输入你的答案..."
+                rows="4"
+              ></textarea>
+            </div>
+
+            <!-- 导航按钮 -->
+            <div class="nav-buttons">
+              <button
+                class="btn-nav"
+                @click="prevQuestion"
+                :disabled="currentQuestionIndex === 0"
+              >
+                上一题
+              </button>
+              <button
+                class="btn-nav"
+                @click="nextQuestion"
+                :disabled="currentQuestionIndex === questions.length - 1"
+              >
+                下一题
+              </button>
+            </div>
+
+            <!-- 提交按钮 -->
+            <button
+              class="btn-submit-all"
+              @click="submitAllAnswers"
+              :disabled="!canSubmit || isSubmitting"
+              :class="{ 'is-loading': isSubmitting }"
+            >
+              <span v-if="isSubmitting" class="loading-icon"></span>
+              <span>{{ isSubmitting ? gradingProgress || 'AI 正在评分中...' : '提交全部答案' }}</span>
+            </button>
+            
+            <!-- 评分进度提示 -->
+            <div v-if="isSubmitting && gradingProgress" class="grading-progress">
+              <div class="progress-bar">
+                <div class="progress-fill" :style="{ width: (questions.filter(q => q.isCorrect !== null).length / questions.length * 100) + '%' }"></div>
+              </div>
+              <p class="progress-text">{{ gradingProgress }}，请稍候...</p>
+            </div>
+          </div>
+
+          <!-- 结果展示 -->
+          <div v-else-if="showResult" class="result-panel" key="result">
+            <div class="result-header">
+              <span class="ai-badge">评分报告</span>
+              <button class="close-btn" @click="resetQuiz">重新开始</button>
+            </div>
+
+            <div class="score-summary">
+              <div class="score-circle" :style="{ borderColor: getScoreColor(totalScore) }">
+                <span class="score">{{ totalScore }}</span>
+                <span class="unit">分</span>
+              </div>
+              <div class="score-info">
+                <p>正确: {{ correctCount }} / {{ questions.length }}</p>
+                <p>正确率: {{ Math.round(correctCount / questions.length * 100) }}%</p>
+              </div>
+            </div>
+
+            <!-- 详细结果 -->
+            <div class="detailed-results">
+              <div
+                v-for="(q, index) in questions"
+                :key="index"
+                class="result-item"
+                :class="{ 'correct': q.isCorrect, 'wrong': !q.isCorrect }"
+              >
+                <div class="result-question">
+                  <span class="result-number">第 {{ index + 1 }} 题</span>
+                  <span class="result-status" v-if="q.type === 'code' && q.score !== undefined">
+                    <span :class="getScoreClass(q.score)">{{ getScoreLevel(q.score) }}</span>
+                    <span class="code-score">({{ q.score }}分)</span>
+                  </span>
+                  <span class="result-status" v-else>{{ q.isCorrect ? '✓ 正确' : '✗ 错误' }}</span>
+                </div>
+                <div class="result-content">
+                  <p class="result-q">{{ q.content }}</p>
+                  <p class="result-answer">
+                    <span class="label">你的答案:</span>
+                    <span :class="{ 'wrong-text': !q.isCorrect }">{{ formatAnswer(q.userAnswer) || '未作答' }}</span>
+                  </p>
+                  <p class="result-correct" v-if="!q.isCorrect && q.type !== 'code' && q.type !== 'short'">
+                    <span class="label">正确答案:</span>
+                    <span class="correct-text">{{ formatAnswer(q.correctAnswer) }}</span>
+                  </p>
+                  <p class="result-correct" v-if="q.type === 'short'">
+                    <span class="label">参考答案:</span>
+                    <span class="correct-text">{{ formatAnswer(q.correctAnswer) }}</span>
+                    <span class="manual-hint">（需老师人工评分）</span>
+                  </p>
+                  <p class="result-correct" v-if="q.type === 'code' && q.correctAnswer">
+                    <span class="label">参考答案:</span>
+                    <span class="correct-text">{{ q.correctAnswer }}</span>
+                  </p>
+                  <div class="result-explanation" v-if="q.explanation">
+                    <span class="label">解析:</span>
+                    <p>{{ q.explanation }}</p>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
 
+          <!-- 无题目时的引导 -->
           <div v-else class="guide-section" key="guide">
-            <h3>本次实验任务</h3>
-            <div class="task-card">
-              <h4>【银行家算法实现】</h4>
-              <ul class="requirements-list">
-                <li>1. 实现安全序列检测函数 `isSafe()`</li>
-                <li>2. 正确维护 `Available`, `Allocation`, `Need` 矩阵</li>
-                <li>3. 模拟请求资源后的系统状态回滚逻辑</li>
+            <h3>📚 练习模式说明</h3>
+            <div class="guide-card">
+              <h4>如何开始？</h4>
+              <ul class="guide-list">
+                <li>1. 选择知识库（默认随机抽取）</li>
+                <li>2. 点击"生成题目"获取10-15道练习题</li>
+                <li>3. 完成答题后提交获取评分</li>
+                <li>4. 查看解析，巩固知识</li>
               </ul>
             </div>
             <div class="tip-box">
               <i class="icon-info">💡</i>
-              <p>请注意处理死锁避免的边界条件。编写完毕后点击上方按钮，AI 将根据知识库标准答案进行对比批改。</p>
+              <p>题目类型包括选择题和填空题，内容来自所选知识库的文档。</p>
             </div>
           </div>
         </Transition>
@@ -96,570 +288,1857 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 
-const codeContent = ref('');
+// 状态
+const knowledgeList = ref([]);
+const selectedKnowledge = ref('');
+const questions = ref([]);
+const currentQuestionIndex = ref(0);
+const isGenerating = ref(false);
 const isSubmitting = ref(false);
-const diagnosticResult = ref(null);
-const lineCount = ref(1);
+const showResult = ref(false);
+const totalScore = ref(0);
+const correctCount = ref(0);
+const gradingProgress = ref(''); // 评分进度提示
 
-// 更新行号
-const updateLineCount = () => {
-  lineCount.value = codeContent.value.split('\n').length || 1;
+// MaxKB API 配置
+const MAXKB_BASE_URL = 'http://localhost:8090';
+const MAXKB_TOKEN = 'Bearer application-bb3982ea3ad34a8264a5ac2f7ce2b78b';
+
+// 获取选项字母 (支持 A-Z)
+const getOptionLetter = (option, index) => {
+  if (!option) return '';
+  // 匹配开头的字母
+  const match = option.match(/^([A-Za-z])[\.\、\s]/);
+  if (match) {
+    return match[1].toUpperCase();
+  }
+  // 如果没有字母前缀，根据索引返回
+  const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  return letters[index] || 'A';
 };
 
-// 核心逻辑：接入 MaxKB 进行真实批改
-const submitForAudit = async () => {
-  if (!codeContent.value.trim()) return;
-  isSubmitting.value = true;
+// 获取选项内容（去掉字母前缀）
+const getOptionContent = (option) => {
+  if (!option) return '';
+  // 去掉开头的字母和分隔符
+  return option.replace(/^[A-Za-z][\.\、\s]?\s*/, '');
+};
 
+// 格式化答案显示（处理数组格式）
+const formatAnswer = (answer) => {
+  if (!answer) return '';
+  if (Array.isArray(answer)) {
+    return answer.join(', ');
+  }
+  return String(answer);
+};
+
+// 选择选项
+const selectOption = (option, index) => {
+  const letter = getOptionLetter(option, index);
+  // 如果已选择同一选项，取消选择；否则选择新选项
+  if (currentQuestion.value.userAnswer === letter) {
+    currentQuestion.value.userAnswer = '';
+  } else {
+    currentQuestion.value.userAnswer = letter;
+  }
+};
+
+// 多选题：检查是否选中
+const isMultiSelected = (option, index) => {
+  const letter = getOptionLetter(option, index);
+  const userAnswer = currentQuestion.value.userAnswer || [];
+  return Array.isArray(userAnswer) && userAnswer.includes(letter);
+};
+
+// 多选题：切换选项
+const toggleMultiOption = (option, index) => {
+  const letter = getOptionLetter(option, index);
+  if (!Array.isArray(currentQuestion.value.userAnswer)) {
+    currentQuestion.value.userAnswer = [];
+  }
+  const idx = currentQuestion.value.userAnswer.indexOf(letter);
+  if (idx > -1) {
+    currentQuestion.value.userAnswer.splice(idx, 1);
+  } else {
+    currentQuestion.value.userAnswer.push(letter);
+  }
+  // 排序答案
+  currentQuestion.value.userAnswer.sort();
+};
+
+// 当前题目
+const currentQuestion = computed(() => {
+  return questions.value[currentQuestionIndex.value] || null;
+});
+
+// 是否可以提交
+const canSubmit = computed(() => {
+  return questions.value.some(q => q.userAnswer);
+});
+
+// 知识库切换
+const onKnowledgeChange = () => {
+  console.log('切换知识库:', selectedKnowledge.value);
+};
+
+// 获取知识库列表
+const fetchKnowledgeList = async () => {
   try {
-    // 构造发送给 AI 的提示词（简化版，更自然）
-    const fullPrompt = `你是一名操作系统课程教授。请仔细分析以下代码并评估质量，满分100分。
-    代码内容：
-    ${codeContent.value}
-    
-    请给出：
-    1. 评分（0-100分）
-    2. 代码中的问题（如果有）
-    3. 改进建议（如果有）
-    
-    请直接回答，评分可以用以下任一格式：
-    - 评分：85分
-    - 得分：85/100
-    - SCORE: 85`;
-    // 真实调用 MaxKB API (根据你的 token 和地址)
-    const chatIdResponse = await fetch('http://localhost:8090/chat/api/open', {
+    // 尝试不同的 API 路径
+    let response = await fetch(`${MAXKB_BASE_URL}/api/knowledge/workspace/default/knowledge`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': 'Bearer application-bb3982ea3ad34a8264a5ac2f7ce2b78b'
+        'Authorization': MAXKB_TOKEN
       }
     });
     
+    // 如果失败，尝试另一个路径
+    if (!response.ok) {
+      response = await fetch(`${MAXKB_BASE_URL}/api/application/workspace/default/application`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': MAXKB_TOKEN
+        }
+      });
+    }
+    
+    if (response.ok) {
+      const text = await response.text();
+      try {
+        const data = JSON.parse(text);
+        knowledgeList.value = data.data || [];
+      } catch (e) {
+        console.log('知识库列表解析失败，使用默认模式');
+        knowledgeList.value = [];
+      }
+    }
+  } catch (error) {
+    console.log('获取知识库列表失败，将使用随机模式:', error.message);
+    knowledgeList.value = [];
+  }
+};
+
+// 生成题目
+const generateQuestions = async () => {
+  isGenerating.value = true;
+  questions.value = [];
+  currentQuestionIndex.value = 0;
+  showResult.value = false;
+
+  try {
+    // 获取会话 ID
+    console.log('正在获取会话ID...');
+    const chatIdResponse = await fetch(`${MAXKB_BASE_URL}/chat/api/open`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': MAXKB_TOKEN
+      }
+    });
+
     if (!chatIdResponse.ok) {
       throw new Error(`获取会话ID失败: ${chatIdResponse.status}`);
     }
     
     const chatIdData = await chatIdResponse.json();
+    console.log('会话ID响应:', chatIdData);
     const chatId = chatIdData.data || chatIdData.id || '';
     
-    console.log('获取到的会话 ID:', chatId);
-    
     if (!chatId) {
-      throw new Error('无法获取会话 ID');
+      throw new Error('无法获取有效的会话ID');
     }
-    
-    const response = await fetch(`http://localhost:8090/chat/api/chat_message/${chatId}`, {
+    console.log('获取到的会话ID:', chatId);
+
+    // 构造出题 prompt - 随机生成 10-15 道题
+    const questionCount = Math.floor(Math.random() * 6) + 10; // 10-15 道随机
+
+    const prompt = `请根据知识库文档内容生成${questionCount}道练习题。
+
+【强制要求】
+1. 只返回纯JSON格式，不要任何其他文字、解释或Markdown格式
+2. 不要使用\`\`\`json或\`\`\`代码块标记
+3. 直接以 {"questions": 开头，以 } 结尾
+4. 题目必须来自知识库内容
+
+返回格式示例：
+{"questions":[{"type":"choice","content":"题目内容?","options":["A. 选项1","B. 选项2","C. 选项3","D. 选项4"],"correctAnswer":"A","explanation":"解析"},{"type":"fill","content":"填空题____","correctAnswer":"答案","explanation":"解析"},{"type":"judge","content":"判断题内容","correctAnswer":"对","explanation":"解析"},{"type":"code","content":"代码题要求","correctAnswer":"参考答案","explanation":"评分标准"}]}
+
+现在直接返回JSON：`;
+
+    // 发送出题请求
+    const response = await fetch(`${MAXKB_BASE_URL}/chat/api/chat_message/${chatId}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': 'Bearer application-bb3982ea3ad34a8264a5ac2f7ce2b78b'
+        'Authorization': MAXKB_TOKEN
       },
-      body: JSON.stringify({ 
-        message: fullPrompt,
+      body: JSON.stringify({
+        message: prompt,
         stream: false,
         re_chat: true
       })
     });
-    
+
     const data = await response.json();
-    const aiReply = data.data?.content || "";
+    console.log('MaxKB 完整响应:', data);
     
-    // 解析 AI 返回的文本
-    parseAIResult(aiReply);
+    // 检查是否返回错误
+    if (data.code !== 200) {
+      if (data.message && data.message.includes('访问次数')) {
+        throw new Error('MaxKB 访问次数超限，请稍后再试');
+      }
+      throw new Error(data.message || 'MaxKB 返回错误');
+    }
+    
+    const aiReply = data.data?.content || data.content || data.answer || '';
+    console.log('提取的回复内容:', aiReply);
+    
+    if (!aiReply) {
+      throw new Error('MaxKB 返回内容为空');
+    }
+    
+    // 解析题目
+    parseQuestions(aiReply);
 
   } catch (error) {
-    console.error("AI 批改请求失败:", error);
-    // alert 已删除
+    console.error('生成题目失败:', error);
+    alert('生成题目失败: ' + error.message);
   } finally {
-    isSubmitting.value = false;
+    isGenerating.value = false;
   }
 };
 
-// 解析 AI 回复函数
-const parseAIResult = (text) => {
-  console.log('AI 原始返回内容:', text);
+// 解析 AI 返回的题目
+const parseQuestions = (text) => {
+  console.log('MaxKB 返回原始内容:', text);
   
-  // 尝试从内容中提取分数
-  let score = 70;
-  let scoreFound = false;
-  
-  // 方法1: 尝试匹配标准格式 "SCORE: 数字"
-  const scoreMatch = text.match(/SCORE:\s*(\d+)/);
-  if (scoreMatch) {
-    score = parseInt(scoreMatch[1]);
-    scoreFound = true;
-  }
-  
-  // 方法1.5: 尝试匹配 "85/100" 格式
-  if (!scoreFound) {
-    const slashMatch = text.match(/(\d{1,3})\s*\/\s*100/);
-    if (slashMatch) {
-      score = parseInt(slashMatch[1]);
-      scoreFound = true;
-      console.log("通过斜杠格式找到分数:", slashMatch[0]);
-    }
-  }
-  
-  if (!scoreFound) {
-    // 方法2: 尝试从内容中查找数字分数 - 支持多种格式
-    const patterns = [
-      /评分[:：]\s*(\d{1,3})\s*分/,           // 最精确：评分：60分
-      /分数[:：]\s*(\d{1,3})\s*分/,           // 分数：60分
-      /得分[:：]\s*(\d{1,3})\s*分/,           // 得分：60分
-      /最终评分[:：]\s*(\d{1,3})\s*分/,       // 最终评分：60分
-      /(\d{1,3})\s*\/\s*100/,                 // 60/100
-      /score[:：]\s*(\d{1,3})\s*\/\s*100/i   // score: 60/100
-    ];
+  try {
+    // 预处理：清理各种干扰字符
+    let cleanedText = text;
     
-    for (const pattern of patterns) {
-      const match = text.match(pattern);
-      if (match) {
-        const foundScore = parseInt(match[1] || match[2]);
-        if (foundScore >= 0 && foundScore <= 100) {
-          const fullText = match[0];
-          const matchIndex = text.indexOf(fullText);
-          const precedingText = text.substring(Math.max(0, matchIndex - 20), matchIndex);
-          
-          // 只过滤'满分100分'这种描述性文字
-          if (precedingText.match(/满分|满分是|满分为/) && fullText.match(/100/)) {
-            console.log('跳过描述性文字后的分数:', fullText);
-            continue;
+    // 移除 markdown 代码块标记
+    cleanedText = cleanedText.replace(/```json\s*/gi, '');
+    cleanedText = cleanedText.replace(/```\s*/g, '');
+    
+    // 移除 "复制代码" 等文字
+    cleanedText = cleanedText.replace(/复制代码/g, '');
+    
+    // 【关键修复】替换中文标点为英文标点
+    cleanedText = cleanedText.replace(/"/g, '"');
+    cleanedText = cleanedText.replace(/"/g, '"');
+    cleanedText = cleanedText.replace(/'/g, "'");
+    cleanedText = cleanedText.replace(/'/g, "'");
+    cleanedText = cleanedText.replace(/，/g, ',');
+    cleanedText = cleanedText.replace(/：/g, ':');
+    cleanedText = cleanedText.replace(/【/g, '[');
+    cleanedText = cleanedText.replace(/】/g, ']');
+    
+    // 【修复】无效转义字符
+    cleanedText = cleanedText.replace(/\\(?!["\\\/bfnrtu])/g, '\\\\');
+    
+    // 【修复】移除不可见字符
+    cleanedText = cleanedText.replace(/[\u200B-\u200D\uFEFF\u00A0]/g, '');
+    
+    // 【关键修复】处理代码块中的换行符
+    // 把 ```代码块``` 里面的换行符替换成 \n 转义序列
+    cleanedText = cleanedText.replace(/```(\w*)\n([\s\S]*?)```/g, (match, lang, code) => {
+      // 把代码里的换行符转义
+      const escapedCode = code.replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t');
+      return '```' + lang + '\\n' + escapedCode + '```';
+    });
+    
+    console.log('清理后内容长度:', cleanedText.length);
+    
+    // 【新方法】提取所有 JSON 对象
+    const allQuestions = [];
+    let searchStart = 0;
+    
+    while (searchStart < cleanedText.length) {
+      // 找下一个 { 
+      const braceIdx = cleanedText.indexOf('{', searchStart);
+      if (braceIdx === -1) break;
+      
+      // 使用状态机找到匹配的结束大括号
+      let braceCount = 0;
+      let inString = false;
+      let escapeNext = false;
+      let endIdx = -1;
+      
+      for (let i = braceIdx; i < cleanedText.length; i++) {
+        const char = cleanedText[i];
+        
+        if (escapeNext) {
+          escapeNext = false;
+          continue;
+        }
+        
+        if (char === '\\') {
+          escapeNext = true;
+          continue;
+        }
+        
+        if (char === '"') {
+          inString = !inString;
+          continue;
+        }
+        
+        if (!inString) {
+          if (char === '{') {
+            braceCount++;
+          } else if (char === '}') {
+            braceCount--;
+            if (braceCount === 0) {
+              endIdx = i + 1;
+              break;
+            }
           }
-          
-          score = foundScore;
-          scoreFound = true;
-          console.log('匹配到完整文本:', match[0], '提取分数:', match[1], '使用模式:', pattern);
-          break;
         }
       }
-    }
-  }
-  
-  // 方法3: 如果没有找到分数，根据建议的数量和质量智能估算
-  if (!scoreFound) {
-    console.log('未找到明确分数，开始智能估算...');
-    
-    // 更精确的错误统计：只统计明确的"错误"描述
-    // 忽略建议、代码示例、格式化内容
-    const lines = text.split('\n');
-    let actualErrorCount = 0;
-    let suggestionCount = 0;
-    
-    lines.forEach(line => {
-      const trimmedLine = line.trim();
       
-      // 统计真正的错误（包含"错误"、"问题"、"缺陷"、"bug"等关键词）
-      if (trimmedLine.match(/错误|问题|缺陷|bug|Error|issue|fault|第\d+行/) && !trimmedLine.includes('建议')) {
-        actualErrorCount++;
+      if (endIdx === -1) {
+        searchStart = braceIdx + 1;
+        continue;
       }
-      // 统计建议（包含"建议"、"优化"、"改进"等关键词）
-      else if (trimmedLine.match(/建议|优化|改进|建议|优化|改进/)) {
-        suggestionCount++;
-      }
-    });
-    
-    const totalIssues = actualErrorCount + suggestionCount;
-    
-    console.log('精确统计问题数量:', totalIssues, '(实际错误:', actualErrorCount, ', 建议:', suggestionCount, ')');
-    
-    // 根据错误严重程度估算分数
-    // 定义错误严重等级
-    const criticalErrors = [
-      /没有.*?(互斥|锁|同步)/,
-      /缺乏.*?(互斥|锁|同步)/,
-      /未使用.*?(互斥|锁|同步)/,
-      /没有加锁/,
-      /不加锁/,
-      /数组越界/,
-      /缓冲区溢出/,
-      /空指针/,
-      /段错误/,
-      /未定义.*?(变量|函数)/,
-      /内存泄漏/,
-      /无法.*?(编译|运行|执行)/,
-      /致命/,
-      /崩溃/,
-      /线程.*?(不安全|竞争)/,
-      /数据竞争/,
-      /竞态/
-    ];
-    
-    const moderateErrors = [
-      /if.*?(检查|等待)/,
-      /while.*?(检查|等待)/,
-      /条件变量/,
-      /虚假唤醒/,
-      /死锁/,
-      /阻塞/,
-      /初始化/,
-      /资源.*?(管理|释放)/,
-      /缓冲区.*?(满|空)/,
-      /同步.*?(机制|问题)/
-    ];
-    
-    const minorIssues = [
-      /命名/,
-      /注释/,
-      /可读性/,
-      /代码.*?(结构|风格)/,
-      /变量.*?(命名|描述)/,
-      /建议.*?(命名|注释)/
-    ];
-    
-    // 统计各等级错误数量
-    let criticalCount = 0;
-    let moderateCount = 0;
-    let minorCount = 0;
-    
-    criticalErrors.forEach(pattern => {
-      const matches = text.match(new RegExp(pattern, 'gi'));
-      if (matches) criticalCount += matches.length;
-    });
-    
-    moderateErrors.forEach(pattern => {
-      const matches = text.match(new RegExp(pattern, 'gi'));
-      if (matches) moderateCount += matches.length;
-    });
-    
-    minorIssues.forEach(pattern => {
-      const matches = text.match(new RegExp(pattern, 'gi'));
-      if (matches) minorCount += matches.length;
-    });
-    
-    console.log('错误统计 - 严重:', criticalCount, '中等:', moderateCount, '轻微:', minorCount);
-    
-    // 根据错误严重程度评分
-    // 严重错误：每个扣25-30分
-    // 中等错误：每个扣10-15分
-    // 轻微问题：每个扣3-5分
-    score = 100;
-    
-    if (criticalCount > 0) {
-      // 有严重错误，分数大幅降低
-      score = Math.max(20, 100 - criticalCount * 30);
-    } else if (moderateCount > 0) {
-      // 有中等错误，分数中等降低
-      score = Math.max(50, 100 - moderateCount * 15);
-    } else if (minorCount > 0) {
-      // 只有轻微问题，分数小幅降低
-      score = Math.max(85, 100 - minorCount * 5);
-    }
-    
-    // 如果有严重错误，无论如何都不给高分
-    if (criticalCount >= 2) {
-      score = Math.min(score, 30);
-    } else if (criticalCount === 1) {
-      score = Math.min(score, 60);
-    }
-    
-    console.log('智能估算分数:', score);
-  }
-  
-  // 智能评分已经考虑了错误严重程度，不需要额外调整
-  
-  // 无论 MaxKB 是否给了分数，都要检测严重错误
-  // 如果有严重错误但分数过高（>60），用智能评分覆盖
-  const severeErrorPatterns = [
-    /没有.*?(互斥|锁|同步)/,
-    /缺乏.*?(互斥|锁|同步)/,
-    /未使用.*?(互斥|锁|同步)/,
-    /没有加锁/,
-    /不加锁/,
-    /数组越界/,
-    /缓冲区溢出/,
-    /空指针/,
-    /段错误/,
-    /未定义.*?(变量|函数)/,
-    /内存泄漏/,
-    /无法.*?(编译|运行|执行)/,
-    /致命/,
-    /崩溃/,
-    /数据竞争/,
-    /竞态/,
-    /数据 races/i
-  ];
-  
-  let hasSevereError = false;
-  for (const pattern of severeErrorPatterns) {
-    if (text.match(pattern)) {
-      hasSevereError = true;
-      console.log('检测到严重错误:', pattern);
-      break;
-    }
-  }
-  
-  
-  // 检测代码不完整的情况
-  const incompletePatterns = [
-    /函数体缺失/,
-    /只有.*?注释/,
-    /函数.*?为空/,
-    /未实现/,
-    /缺少实现/,
-    /逻辑缺失/,
-    /body.*?为空/i,
-    /函数没有实现/,
-    /未完成/,
-    /TODO/i,
-    /待实现/,
-    /请.*?完成/,
-    /请.*?实现/,
-    /需要添加/,
-    /只是一个.*?示例/,
-    /没有.*?逻辑/,
-    /剩下的逻辑缺失/,
-    /只是部分功能/
-  ];
-  
-  let hasIncompleteCode = false;
-  for (const pattern of incompletePatterns) {
-    if (text.match(pattern)) {
-      hasIncompleteCode = true;
-      console.log('检测到代码不完整:', pattern);
-      break;
-    }
-  }
-  // --- 先分析用户提交的代码本身 ---
-  const analyzeUserCode = () => {
-    const code = codeContent.value;
-    const lines = code.split('\n');
-    
-    // 统计有效代码行（去掉空行和纯注释行）
-    let effectiveLines = 0;
-    let commentOnlyLines = 0;
-    let emptyLines = 0;
-    let inBlockComment = false;
-    
-    lines.forEach(line => {
-      const trimmed = line.trim();
       
-      // 处理块注释
-      if (inBlockComment) {
-        if (trimmed.includes('*/')) {
-          inBlockComment = false;
+      // 提取这个 JSON 字符串
+      let jsonStr = cleanedText.substring(braceIdx, endIdx);
+      
+      // 调试：打印原始 JSON 片段
+      console.log('原始 JSON (前200字符):', jsonStr.substring(0, 200));
+      
+      // 【关键修复】修复JSON字符串值里的问题
+      // 1. 换行符需要转义
+      // 2. 字符串内部的双引号需要转义
+      let fixedJson = '';
+      let inJsonString = false;
+      let jsonEscape = false;
+      
+      for (let i = 0; i < jsonStr.length; i++) {
+        const char = jsonStr[i];
+        
+        if (jsonEscape) {
+          fixedJson += char;
+          jsonEscape = false;
+          continue;
         }
-        commentOnlyLines++;
-        return;
-      }
-      
-      if (trimmed.startsWith('/*')) {
-        inBlockComment = true;
-        commentOnlyLines++;
-        return;
-      }
-      
-      // 空行
-      if (trimmed === '') {
-        emptyLines++;
-        return;
-      }
-      
-      // 单行注释
-      if (trimmed.startsWith('//') || trimmed.startsWith('#')) {
-        commentOnlyLines++;
-        return;
-      }
-      
-      // 有效代码行
-      effectiveLines++;
-    });
-    
-    // 统计空函数数量（函数定义后只有 { } 或 { // 注释 }）
-    const emptyFunctionPatterns = [
-      /\w+\s*\([^)]*\)\s*\{\s*\}/g,  // func() {}
-      /\w+\s*\([^)]*\)\s*\{\s*\/\/[^\n]*\s*\}/g  // func() { // comment }
-    ];
-    
-    let emptyFunctionCount = 0;
-    emptyFunctionPatterns.forEach(pattern => {
-      const matches = code.match(pattern);
-      if (matches) emptyFunctionCount += matches.length;
-    });
-    
-    return {
-      totalLines: lines.length,
-      effectiveLines,
-      commentOnlyLines,
-      emptyLines,
-      emptyFunctionCount,
-      codeToCommentRatio: effectiveLines / (effectiveLines + commentOnlyLines + 0.1)
-    };
-  };
-  
-  const codeAnalysis = analyzeUserCode();
-  console.log('代码分析结果:', codeAnalysis);
-  
-  // 如果有严重错误或代码不完整且分数过高（>=50），重新用智能评分
-  if ((hasSevereError || hasIncompleteCode) && score >= 50) {
-    console.log('检测到问题但 MaxKB 分数过高(', score, ')，重新计算...');
-    
-    // 优先处理代码不完整的情况 - 这是最严重的问题
-    if (hasIncompleteCode) {
-      // 根据代码实际情况判断
-      // 情况1：有效代码行很少（< 5行），且只有函数名/注释 → 0分
-      if (codeAnalysis.effectiveLines < 5) {
-        score = 0;
-        console.log('代码几乎为空（有效行<5），评分:', score);
-      }
-      // 情况2：有效代码行较少（< 15行），大部分是注释 → 10-20分
-      else if (codeAnalysis.effectiveLines < 15 && codeAnalysis.codeToCommentRatio < 0.3) {
-        score = 15;
-        console.log('代码很少且主要是注释，评分:', score);
-      }
-      // 情况3：有一定代码量，但有函数为空 → 根据比例扣分
-      else if (codeAnalysis.effectiveLines >= 15) {
-        // 按空函数占比扣分
-        const emptyRatio = codeAnalysis.emptyFunctionCount / Math.max(1, codeAnalysis.effectiveLines / 10);
-        if (emptyRatio >= 0.5) {
-          score = Math.max(score * 0.3, 20); // 空函数太多，打3折
-        } else if (emptyRatio >= 0.2) {
-          score = Math.max(score * 0.6, 40); // 部分函数为空，打6折
+        
+        if (char === '\\' && inJsonString) {
+          fixedJson += char;
+          jsonEscape = true;
+          continue;
+        }
+        
+        // 处理字符串外的反斜杠（可能是错误的转义）
+        if (char === '\\' && !inJsonString) {
+          // 跳过字符串外的孤立反斜杠
+          continue;
+        }
+        
+        if (char === '"') {
+          if (!inJsonString) {
+            // 开始一个字符串
+            inJsonString = true;
+            fixedJson += char;
+          } else {
+            // 检查这个引号是字符串结束还是内部引号
+            // 如果后面紧跟的是 : , } ] 或空白+这些字符，说明是字符串结束
+            const rest = jsonStr.substring(i + 1).trimStart();
+            const nextChar = rest.charAt(0);
+            if ([':', ',', '}', ']', '\n', '\r', ''].includes(nextChar) || rest === '') {
+              inJsonString = false;
+              fixedJson += char;
+            } else {
+              // 这是字符串内部的引号，需要转义
+              fixedJson += '\\"';
+            }
+          }
+          continue;
+        }
+        
+        // 在字符串里面遇到换行符，转义它
+        if (inJsonString) {
+          if (char === '\n') {
+            fixedJson += '\\n';
+          } else if (char === '\r') {
+            fixedJson += '\\r';
+          } else if (char === '\t') {
+            fixedJson += '\\t';
+          } else {
+            fixedJson += char;
+          }
         } else {
-          score = Math.max(score * 0.8, 50); // 少量函数为空，打8折
+          fixedJson += char;
         }
-        console.log('有一定代码量但有空函数，空函数占比:', emptyRatio, '评分:', score);
-      }
-      // 其他情况
-      else {
-        score = Math.max(score * 0.5, 25);
-        console.log('代码不完整，评分:', score);
-      }
-    } 
-    // 处理严重错误的情况
-    else if (hasSevereError) {
-      const criticalErrors = [
-        /没有.*?(互斥|锁|同步)/,
-        /缺乏.*?(互斥|锁|同步)/,
-        /未使用.*?(互斥|锁|同步)/,
-        /没有加锁/,
-        /不加锁/,
-        /数组越界/,
-        /缓冲区溢出/,
-        /空指针/,
-        /段错误/,
-        /未定义.*?(变量|函数)/,
-        /内存泄漏/,
-        /无法.*?(编译|运行|执行)/,
-        /致命/,
-        /崩溃/,
-        /数据竞争/,
-        /竞态/
-      ];
-      
-      let criticalCount = 0;
-      criticalErrors.forEach(pattern => {
-        const matches = text.match(new RegExp(pattern, 'gi'));
-        if (matches) criticalCount += matches.length;
-      });
-      
-      // 根据严重错误数量重新评分
-      score = Math.max(20, 100 - criticalCount * 30);
-      if (criticalCount >= 2) {
-        score = Math.min(score, 30);
-      } else if (criticalCount === 1) {
-        score = Math.min(score, 60);
       }
       
-      console.log('有严重错误，数量:', criticalCount, '，评分:', score);
+      // 尝试解析
+      try {
+        // 【修复1】移除尾随逗号（数组/对象最后一个元素后的逗号）
+        let repairJson = fixedJson
+          .replace(/,\s*\]/g, ']')   // 数组尾随逗号
+          .replace(/,\s*\}/g, '}');  // 对象尾随逗号
+        
+        // 调试：打印修复后的 JSON 片段
+        console.log('修复后 JSON (前300字符):', repairJson.substring(0, 300));
+        
+        let parsed;
+        try {
+          parsed = JSON.parse(repairJson);
+        } catch (parseError) {
+          // 【修复2】尝试添加缺失的逗号（保守方式）
+          // 情况：`"correctAnswer": "A"\n"explanation"` 缺少逗号
+          repairJson = repairJson.replace(/"\s*\n\s*"/g, '",\n"');
+          console.log('添加逗号后 JSON (前300字符):', repairJson.substring(0, 300));
+          parsed = JSON.parse(repairJson);
+        }
+        
+        // 如果有 questions 数组，提取里面的题目
+        if (parsed.questions && Array.isArray(parsed.questions)) {
+          allQuestions.push(...parsed.questions);
+        } 
+        // 如果是单个题目对象（有 type 字段）
+        else if (parsed.type && parsed.content) {
+          allQuestions.push(parsed);
+        }
+        
+        console.log('解析到一个 JSON，当前题目总数:', allQuestions.length);
+      } catch (e) {
+        console.log('JSON 解析失败，跳过:', e.message.substring(0, 50));
+      }
+      
+      searchStart = endIdx;
     }
     
-    console.log('重新计算后的分数:', score);
-  }
-  
-  console.log('最终提取到的分数:', score);
-  
-  const details = [];
-  
-  // 尝试提取建议
-  const lines = text.split('\n');
-  let currentType = 'info';
-  
-  lines.forEach(line => {
-    const trimmedLine = line.trim();
-    
-    if (trimmedLine.includes('ERRORS:') || trimmedLine.includes('错误') || trimmedLine.includes('问题')) {
-      currentType = 'error';
-    } else if (trimmedLine.includes('SUGGESTIONS:') || trimmedLine.includes('建议') || trimmedLine.includes('优化')) {
-      currentType = 'info';
+    if (allQuestions.length === 0) {
+      // 【备用】尝试从 Markdown 格式解析
+      console.log('JSON 解析失败，尝试 Markdown 解析...');
+      const markdownQuestions = parseMarkdownQuestions(cleanedText);
+      if (markdownQuestions.length > 0) {
+        questions.value = markdownQuestions;
+        console.log('成功从 Markdown 解析题目:', questions.value.length, '道');
+        return;
+      }
+      
+      throw new Error('未找到有效的题目数据');
     }
     
-    // 提取以 -、•、数字开头的列表项
-    if (trimmedLine.startsWith('-') || trimmedLine.startsWith('•') || /^\d+\./.test(trimmedLine)) {
-      details.push({ 
-        type: currentType, 
-        text: trimmedLine.replace(/^[-•]\s*/, '').replace(/^\d+\.\s*/, '').trim() 
-      });
-    }
-  });
-
-  // 如果没有提取到详细内容，使用整个回复
-  if (details.length === 0 && text.length > 10) {
-    // 简单分段
-    const sentences = text.split(/[。！？\n]/).filter(s => s.trim().length > 5);
-    sentences.forEach(sentence => {
-      details.push({ type: 'info', text: sentence.trim() });
+    // 处理所有题目
+    questions.value = allQuestions.map(q => {
+      // 【修复】标准化题型名称
+      let type = q.type || 'fill';
+      
+      // 映射各种题型名称
+      const typeMap = {
+        'choose': 'choice',
+        'true/false': 'judge',
+        'calc': 'fill',       // 计算题 → 填空题
+        'sort': 'fill',       // 排序题 → 填空题
+        'graph': 'judge',     // 图形题 → 判断题
+        'function': 'code',   // 函数题 → 代码题
+      };
+      
+      if (typeMap[type]) {
+        type = typeMap[type];
+      }
+      
+      // 【关键修复】智能检测题型
+      const hasOptions = Array.isArray(q.options) && q.options.length >= 2;
+      const correctAnswer = q.correctAnswer || q.correct || '';
+      
+      // 检测多选题：correctAnswer 是数组
+      if (hasOptions && Array.isArray(correctAnswer) && correctAnswer.length > 0) {
+        type = 'multi';
+      }
+      // 检测选择题：correctAnswer 是单个字母
+      else if (hasOptions && typeof correctAnswer === 'string') {
+        const answerLetter = correctAnswer.toUpperCase();
+        if (/^[A-E]$/.test(answerLetter)) {
+          type = 'choice';
+        }
+      }
+      // 检测简答题：答案是很长的文本
+      else if (type === 'short' || (typeof correctAnswer === 'string' && correctAnswer.length > 50)) {
+        type = 'short';
+      }
+      
+      // 处理选项（选择题和多选题）
+      let options = [];
+      if ((type === 'choice' || type === 'multi') && hasOptions) {
+        const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+        options = q.options.map((opt, idx) => {
+          if (typeof opt === 'string' && !opt.match(/^[A-Za-z][\.\、\s]/)) {
+            return `${letters[idx]}. ${opt}`;
+          }
+          return opt;
+        });
+      }
+      
+      // 标准化答案格式
+      let normalizedAnswer = correctAnswer;
+      if (typeof normalizedAnswer === 'string' && normalizedAnswer.length === 1) {
+        normalizedAnswer = normalizedAnswer.toUpperCase();
+      }
+      // 多选题答案转大写数组
+      if (Array.isArray(normalizedAnswer)) {
+        normalizedAnswer = normalizedAnswer.map(a => typeof a === 'string' ? a.toUpperCase() : a);
+      }
+      
+      return {
+        ...q,
+        type,
+        options,
+        correctAnswer: normalizedAnswer,
+        userAnswer: type === 'multi' ? [] : '',
+        isCorrect: null
+      };
     });
+    
+    console.log('成功解析题目:', questions.value.length, '道');
+    
+  } catch (e) {
+    console.error('解析题目异常:', e);
+    alert('题目生成失败: ' + e.message);
   }
-
-  diagnosticResult.value = {
-    score: score,
-    details: details.length > 0 ? details : [{ type: 'info', text: text.substring(0, 200) + '...' }]
-  };
-
-  // --- 同步到教师端真实日志 ---
-  const logs = JSON.parse(localStorage.getItem('os_chat_logs') || '[]');
-  logs.push({
-    id: Date.now(),
-    type: 'HW_SUBMIT',
-    codeLength: codeContent.value.length,
-    score: score,
-    timestamp: new Date().toLocaleString()
-  });
-  localStorage.setItem('os_chat_logs', JSON.stringify(logs));
 };
 
+// 从 Markdown 格式解析题目（备用方案）
+const parseMarkdownQuestions = (text) => {
+  const questions = [];
+  console.log('尝试 Markdown 解析...');
+  
+  // 【检测问答题格式】如果是问答题格式（长答案），直接返回空
+  const isQAType = text.includes('### 基础题') ||
+                   text.includes('### 进阶题') ||
+                   text.includes('### 答案参考') ||
+                   text.includes('### 总结');
+  
+  if (isQAType) {
+    console.log('检测到问答题格式，不支持解析');
+    return [];
+  }
+  
+  // ========== 选择题 ==========
+  // 格式1: **选择题**：题目内容 后面跟选项和答案
+  // 格式2: 数字. 题目内容 后面跟选项和答案
+  
+  // 【格式1】- **选择题**：题目内容
+  const choiceFormat1 = /[-*]\s*\*\*选择题\*\*[：:]\s*([^\n]+)\n\s*([A-E])\.\s*([^\n]+)\n\s*([A-E])\.\s*([^\n]+)\n\s*([A-E])\.\s*([^\n]+)(?:\n\s*([A-E])\.\s*([^\n]+))?(?:\n\s*([A-E])\.\s*([^\n]+))?(?:\n\s*\*\*正确答案[：:]\s*([A-E])\*\*)?/g;
+  let m1;
+  while ((m1 = choiceFormat1.exec(text)) !== null) {
+    const content = m1[1].trim();
+    if (content.length < 5 || content.includes('答案')) continue;
+    
+    const options = [];
+    const letters = [m1[2], m1[4], m1[6]];
+    const contents = [m1[3], m1[5], m1[7]];
+    if (m1[8] && m1[9]) { letters.push(m1[8]); contents.push(m1[9]); }
+    if (m1[10] && m1[11]) { letters.push(m1[10]); contents.push(m1[11]); }
+    
+    for (let i = 0; i < letters.length; i++) {
+      options.push(`${letters[i]}. ${contents[i].trim()}`);
+    }
+    
+    const correctAnswer = m1[12] || 'A';
+    questions.push({
+      type: 'choice',
+      content,
+      options,
+      correctAnswer,
+      explanation: '',
+      userAnswer: '',
+      isCorrect: null
+    });
+  }
+  
+  // 【格式2】数字. 题目内容 后面跟选项和 **正确答案**
+  const choiceFormat2 = /(\d+)\.\s*([^\n]+)\n\s*([A-E])\.\s*([^\n]+)\n\s*([A-E])\.\s*([^\n]+)\n\s*([A-E])\.\s*([^\n]+)(?:\n\s*([A-E])\.\s*([^\n]+))?(?:\n\s*([A-E])\.\s*([^\n]+))?\n\s*\*\*正确答案[：:]\s*([A-E])\*\*/g;
+  let m2;
+  while ((m2 = choiceFormat2.exec(text)) !== null) {
+    const content = m2[2].trim();
+    if (content.length < 5 || content.includes('答案')) continue;
+    
+    const options = [
+      `${m2[3]}. ${m2[4].trim()}`,
+      `${m2[5]}. ${m2[6].trim()}`,
+      `${m2[7]}. ${m2[8].trim()}`
+    ];
+    if (m2[9] && m2[10]) options.push(`${m2[9]}. ${m2[10].trim()}`);
+    if (m2[11] && m2[12]) options.push(`${m2[11]}. ${m2[12].trim()}`);
+    
+    questions.push({
+      type: 'choice',
+      content,
+      options,
+      correctAnswer: m2[13],
+      explanation: '',
+      userAnswer: '',
+      isCorrect: null
+    });
+  }
+  
+  // ========== 填空题 ==========
+  // 格式: **填空题**：题目内容________答案
+  const fillPattern = /[-*]\s*\*\*填空题\*\*[：:]\s*([^\n]*)(?:_+|_{2,})([^\n]*)/g;
+  let fillMatch;
+  while ((fillMatch = fillPattern.exec(text)) !== null) {
+    const content = fillMatch[1].trim();
+    const answer = fillMatch[2].trim();
+    if (content.length > 5 && answer.length > 0 && answer.length < 50) {
+      questions.push({
+        type: 'fill',
+        content: content + ' ____',
+        correctAnswer: answer,
+        explanation: '',
+        userAnswer: '',
+        isCorrect: null
+      });
+    }
+  }
+  
+  // ========== 判断题 ==========
+  // 格式1: **判断题**：题目内容。（对/错）或 (√/×)
+  // 格式2: 题目内容 **正确答案：对/错**
+  
+  const judgeFormat1 = /[-*]\s*\*\*判断题\*\*[：:]\s*([^\n]+?)(?:（(对|错|√|×)）|(?:\*\*正确答案[：:]\s*(对|错)\*\*))?/g;
+  let jm1;
+  while ((jm1 = judgeFormat1.exec(text)) !== null) {
+    let content = jm1[1].trim();
+    // 清理末尾的符号
+    content = content.replace(/[（(][√×对错][）)]$/g, '').trim();
+    if (content.length > 5 && !content.includes('答案')) {
+      // 如果有明确答案就用，否则默认"对"
+      const answer = jm1[2] || jm1[3] || '对';
+      const normalizedAnswer = ['√', '对', '是', 'true'].includes(answer) ? '对' : '错';
+      questions.push({
+        type: 'judge',
+        content,
+        correctAnswer: normalizedAnswer,
+        explanation: '',
+        userAnswer: '',
+        isCorrect: null
+      });
+    }
+  }
+  
+  // 格式2: 数字. 题目内容 **正确答案：对/错**
+  const judgeFormat2 = /(\d+)\.\s*([^\n]+?)\s*\*\*正确答案[：:]\s*(对|错)\*\*/g;
+  let jm2;
+  while ((jm2 = judgeFormat2.exec(text)) !== null) {
+    const content = jm2[2].trim();
+    if (content.length > 5 && !content.includes('答案')) {
+      questions.push({
+        type: 'judge',
+        content,
+        correctAnswer: jm2[3],
+        explanation: '',
+        userAnswer: '',
+        isCorrect: null
+      });
+    }
+  }
+  
+  // ========== 代码题 ==========
+  const codePattern = /[-*]\s*\*\*代码题\*\*[：:]\s*([^\n]+)/g;
+  let codeMatch;
+  while ((codeMatch = codePattern.exec(text)) !== null) {
+    const content = codeMatch[1].trim();
+    if (content.length > 5) {
+      questions.push({
+        type: 'code',
+        content,
+        correctAnswer: '参考代码实现',
+        explanation: '',
+        userAnswer: '',
+        isCorrect: null
+      });
+    }
+  }
+  
+  console.log('Markdown 解析结果:', questions.length, '道有效题目');
+  return questions;
+};
+
+// 提交全部答案 - 选择题/填空题/判断题本地评分，代码题调用 MaxKB 评分
+const submitAllAnswers = async () => {
+  isSubmitting.value = true;
+  gradingProgress.value = '正在评分...';
+
+  let score = 0;
+  let correct = 0;
+  const totalQuestions = questions.value.length;
+  const pointsPerQuestion = Math.round(100 / totalQuestions);
+
+  // 先收集代码题，需要调用 MaxKB 评分
+  const codeQuestions = questions.value.filter(q => q.type === 'code' && q.userAnswer && q.userAnswer.trim());
+  
+  // 如果有代码题，获取会话 ID
+  let chatId = '';
+  if (codeQuestions.length > 0) {
+    try {
+      const chatIdResponse = await fetch(`${MAXKB_BASE_URL}/chat/api/open`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': MAXKB_TOKEN
+        }
+      });
+      const chatIdData = await chatIdResponse.json();
+      chatId = chatIdData.data || chatIdData.id || '';
+    } catch (e) {
+      console.error('获取会话ID失败:', e);
+    }
+  }
+
+  for (let i = 0; i < questions.value.length; i++) {
+    const q = questions.value[i];
+    
+    // 显示评分进度
+    gradingProgress.value = `正在评分: ${i + 1}/${totalQuestions} 题`;
+    
+    // 模拟短暂延迟，让用户看到进度
+    await new Promise(resolve => setTimeout(resolve, 50));
+    
+    if (!q.userAnswer || !String(q.userAnswer).trim()) {
+      q.isCorrect = false;
+      q.score = 0;
+      continue;
+    }
+
+    // 检查 correctAnswer 是否存在
+    const hasCorrectAnswer = Array.isArray(q.correctAnswer) 
+      ? q.correctAnswer.length > 0 
+      : q.correctAnswer && String(q.correctAnswer).trim();
+    
+    if (!hasCorrectAnswer) {
+      console.warn('题目缺少正确答案:', q.content);
+      q.isCorrect = false;
+      q.score = 0;
+      continue;
+    }
+
+    // 【修复】确保答案是字符串类型
+    const correctAnswerStr = Array.isArray(q.correctAnswer) 
+      ? q.correctAnswer.join(',') 
+      : String(q.correctAnswer || '');
+    
+    const userAnswerStr = Array.isArray(q.userAnswer)
+      ? q.userAnswer.join(',')
+      : String(q.userAnswer || '');
+    
+    const userAnswerUpper = userAnswerStr.toUpperCase().trim();
+    const correctAnswerUpper = correctAnswerStr.toUpperCase().trim();
+    
+    if (q.type === 'choice') {
+      // 选择题：只比较选项字母
+      q.isCorrect = userAnswerUpper === correctAnswerUpper;
+      q.score = q.isCorrect ? 100 : 0;
+    } else if (q.type === 'multi') {
+      // 多选题：数组完全匹配
+      const userArr = userAnswerStr.split(',').map(s => s.trim()).sort();
+      const correctArr = correctAnswerStr.split(',').map(s => s.trim()).sort();
+      q.isCorrect = JSON.stringify(userArr) === JSON.stringify(correctArr);
+      // 多选题部分正确给部分分
+      const matched = userArr.filter(a => correctArr.includes(a)).length;
+      if (q.isCorrect) {
+        q.score = 100;
+      } else if (matched > 0 && userArr.length <= correctArr.length) {
+        q.score = Math.round((matched / correctArr.length) * 100);
+      } else {
+        q.score = 0;
+      }
+    } else if (q.type === 'judge') {
+      // 判断题：标准化答案比较
+      // 正确答案的可能格式: "对", "是", "true", "正确"
+      // 错误答案的可能格式: "错", "否", "false", "错误"
+      const normalizeJudgeAnswer = (ans) => {
+        const a = ans.toLowerCase().trim();
+        if (['对', '是', 'true', '正确', 'yes', '√', '✓'].includes(a)) return '对';
+        if (['错', '否', 'false', '错误', 'no', '×', '✗'].includes(a)) return '错';
+        return a;
+      };
+      const normalizedUser = normalizeJudgeAnswer(userAnswerUpper);
+      const normalizedCorrect = normalizeJudgeAnswer(correctAnswerUpper);
+      q.isCorrect = normalizedUser === normalizedCorrect;
+      q.score = q.isCorrect ? 100 : 0;
+    } else if (q.type === 'code') {
+      // 代码题：调用 MaxKB 评分
+      gradingProgress.value = `正在评分: ${i + 1}/${totalQuestions} 题 (代码题评分中...)`;
+      const result = await gradeCodeQuestion(chatId, q);
+      q.isCorrect = result.isCorrect;
+      // 代码题按实际得分比例计算
+      score += Math.round(pointsPerQuestion * (result.score / 100));
+      if (q.isCorrect) correct++;
+      continue; // 跳过下面的统分逻辑
+    } else if (q.type === 'short') {
+      // 简答题：需要人工评分，暂时给0分并标记
+      q.isCorrect = false;
+      q.score = 0;
+      q.needsManualGrading = true;
+    } else {
+      // 填空题：模糊匹配
+      q.isCorrect = userAnswerUpper === correctAnswerUpper || 
+                   userAnswerUpper.includes(correctAnswerUpper) ||
+                   correctAnswerUpper.includes(userAnswerUpper);
+      q.score = q.isCorrect ? 100 : 0;
+    }
+    
+    if (q.isCorrect) {
+      score += pointsPerQuestion;
+      correct++;
+    }
+  }
+
+  // 确保总分不超过 100
+  totalScore.value = Math.min(score, 100);
+  correctCount.value = correct;
+  showResult.value = true;
+  gradingProgress.value = '';
+  isSubmitting.value = false;
+};
+
+// 代码题评分 - 调用 MaxKB
+const gradeCodeQuestion = async (chatId, question) => {
+  if (!chatId) {
+    // 无法调用 MaxKB，默认给 60% 分
+    return { isCorrect: false, score: 0 };
+  }
+
+  const prompt = `你是一位专业的代码评审专家。请评判以下代码：
+
+题目要求：${question.content}
+
+参考答案/评分标准：
+${question.correctAnswer}
+
+用户提交的代码：
+${question.userAnswer}
+
+请根据以下标准评分：
+- 优秀(90-100分)：代码完全正确，逻辑清晰，风格规范
+- 良好(80-89分)：代码基本正确，有小瑕疵但不影响功能
+- 及格(60-79分)：代码思路正确，但有明显错误或不完整
+- 不及格(0-59分)：代码错误较多或完全错误
+
+请只返回JSON格式：
+{
+  "score": 0-100的分数,
+  "level": "优秀/良好/及格/不及格",
+  "explanation": "简短的评分说明（100字以内）"
+}`;
+
+  try {
+    const response = await fetch(`${MAXKB_BASE_URL}/chat/api/chat_message/${chatId}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': MAXKB_TOKEN
+      },
+      body: JSON.stringify({
+        message: prompt,
+        stream: false,
+        re_chat: true
+      })
+    });
+
+    const data = await response.json();
+    const aiReply = data.data?.content || '';
+    console.log('代码题评分原始回复:', aiReply);
+    
+    // 解析 AI 返回的 JSON（复用修复逻辑）
+    let jsonStr = aiReply;
+    
+    // 提取 JSON 部分
+    const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      console.log('未找到 JSON 格式');
+      return { isCorrect: false, score: 0 };
+    }
+    
+    jsonStr = jsonMatch[0];
+    
+    // 修复 JSON 字符串值里的问题
+    let fixedJson = '';
+    let inJsonString = false;
+    let jsonEscape = false;
+    
+    for (let i = 0; i < jsonStr.length; i++) {
+      const char = jsonStr[i];
+      
+      if (jsonEscape) {
+        fixedJson += char;
+        jsonEscape = false;
+        continue;
+      }
+      
+      if (char === '\\' && inJsonString) {
+        fixedJson += char;
+        jsonEscape = true;
+        continue;
+      }
+      
+      if (char === '"') {
+        if (!inJsonString) {
+          inJsonString = true;
+          fixedJson += char;
+        } else {
+          const rest = jsonStr.substring(i + 1).trimStart();
+          const nextChar = rest.charAt(0);
+          if ([':', ',', '}', ']', '\n', '\r', ''].includes(nextChar) || rest === '') {
+            inJsonString = false;
+            fixedJson += char;
+          } else {
+            fixedJson += '\\"';
+          }
+        }
+        continue;
+      }
+      
+      if (inJsonString) {
+        if (char === '\n') {
+          fixedJson += '\\n';
+        } else if (char === '\r') {
+          fixedJson += '\\r';
+        } else if (char === '\t') {
+          fixedJson += '\\t';
+        } else {
+          fixedJson += char;
+        }
+      } else {
+        fixedJson += char;
+      }
+    }
+    
+    // 尝试解析修复后的 JSON
+    try {
+      const parsed = JSON.parse(fixedJson);
+      // 更新解析内容
+      if (parsed.explanation) {
+        question.explanation = parsed.explanation;
+      }
+      if (parsed.level) {
+        question.level = parsed.level;
+      }
+      const score = parsed.score || 0;
+      question.score = score;
+      // 分数 >= 60 算正确
+      return { isCorrect: score >= 60, score };
+    } catch (parseError) {
+      console.log('JSON 解析仍失败，尝试提取数字:', parseError.message);
+      // 尝试直接提取分数数字
+      const scoreMatch = aiReply.match(/"score"\s*:\s*(\d+)/);
+      if (scoreMatch) {
+        const score = parseInt(scoreMatch[1]);
+        question.score = score;
+        return { isCorrect: score >= 60, score };
+      }
+    }
+  } catch (e) {
+    console.error('代码题评分失败:', e);
+  }
+  
+  return { isCorrect: false, score: 0 };
+};
+
+// 重置
+const resetQuiz = () => {
+  questions.value = [];
+  currentQuestionIndex.value = 0;
+  showResult.value = false;
+  totalScore.value = 0;
+  correctCount.value = 0;
+};
+
+// 上一题
+const prevQuestion = () => {
+  if (currentQuestionIndex.value > 0) {
+    currentQuestionIndex.value--;
+  }
+};
+
+// 下一题
+const nextQuestion = () => {
+  if (currentQuestionIndex.value < questions.value.length - 1) {
+    currentQuestionIndex.value++;
+  }
+};
+
+// 分数颜色
 const getScoreColor = (s) => {
-  if (s >= 90) return '#22c55e';
+  if (s >= 80) return '#22c55e';
   if (s >= 60) return '#eab308';
   return '#ef4444';
 };
 
+// 评分等级
+const getScoreLevel = (s) => {
+  if (s >= 90) return '优秀';
+  if (s >= 80) return '良好';
+  if (s >= 60) return '及格';
+  return '不及格';
+};
+
+// 评分等级样式类
+const getScoreClass = (s) => {
+  if (s >= 90) return 'level-excellent';
+  if (s >= 80) return 'level-good';
+  if (s >= 60) return 'level-pass';
+  return 'level-fail';
+};
+
 onMounted(() => {
-  // 初始化代码示例
-  codeContent.value = `// 示例：银行家算法片段\nvoid checkSafe() {\n  // 请完善逻辑...\n}`;
-  updateLineCount();
+  fetchKnowledgeList();
 });
 </script>
 
 <style scoped>
-/* 继承之前的深色极客设计 */
-.homework-container { height: 100%; display: flex; flex-direction: column; background: #0d1117; color: #c9d1d9; }
-.hw-nav { height: 64px; background: #161b22; border-bottom: 1px solid #30363d; display: flex; justify-content: space-between; align-items: center; padding: 0 24px; }
-.nav-brand { display: flex; align-items: center; gap: 12px; }
-.brand-icon { font-size: 1.8rem; }
-.main-title { font-size: 1.1rem; font-weight: bold; color: #58a6ff; }
-.sub-title { font-size: 0.7rem; color: #8b949e; }
-.btn-submit { background: #238636; color: white; border: none; padding: 10px 24px; border-radius: 6px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px; }
-.btn-submit.is-loading { opacity: 0.7; cursor: wait; }
-.main-content { flex: 1; display: flex; overflow: hidden; }
-.editor-section { flex: 3; display: flex; flex-direction: column; border-right: 1px solid #30363d; }
-.editor-header { padding: 8px 16px; background: #0d1117; display: flex; justify-content: space-between; font-size: 0.75rem; color: #8b949e; border-bottom: 1px solid #21262d; }
-.code-editor-wrapper { flex: 1; display: flex; background: #0d1117; overflow: hidden; }
-.line-numbers { width: 45px; padding: 16px 0; background: #0d1117; color: #484f58; text-align: center; font-family: monospace; border-right: 1px solid #21262d; }
-.code-textarea { flex: 1; background: transparent; border: none; color: #e6edf3; padding: 16px; font-family: 'Fira Code', monospace; font-size: 0.95rem; line-height: 1.6; resize: none; outline: none; }
-.side-panel { flex: 1.2; background: #161b22; display: flex; flex-direction: column; overflow-y: auto; }
-.guide-section, .result-section { padding: 24px; }
-.task-card { background: #0d1117; padding: 16px; border-radius: 8px; border: 1px solid #30363d; margin-top: 15px; }
-.requirements-list { list-style: none; padding: 0; margin: 12px 0; font-size: 0.85rem; color: #8b949e; }
-.requirements-list li { margin-bottom: 8px; }
-.score-box { text-align: center; margin-bottom: 24px; }
-.score-circle { width: 100px; height: 100px; border: 5px solid #238636; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; margin: 0 auto 10px; }
-.score { font-size: 2.2rem; font-weight: bold; }
-.analysis-item { padding: 12px; background: #0d1117; border-radius: 8px; margin-bottom: 12px; border-left: 4px solid #30363d; }
-.type-tag.error { color: #f85149; font-size: 0.7rem; font-weight: bold; }
-.type-tag.info { color: #58a6ff; font-size: 0.7rem; font-weight: bold; }
-.loading-icon { width: 16px; height: 16px; border: 2px solid #fff; border-top-color: transparent; border-radius: 50%; animation: spin 1s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
+.practice-container {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: #0d1117;
+  color: #c9d1d9;
+}
+
+.practice-nav {
+  height: 64px;
+  background: #161b22;
+  border-bottom: 1px solid #30363d;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 24px;
+}
+
+.nav-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.brand-icon {
+  font-size: 1.8rem;
+}
+
+.main-title {
+  font-size: 1.1rem;
+  font-weight: bold;
+  color: #58a6ff;
+}
+
+.sub-title {
+  font-size: 0.7rem;
+  color: #8b949e;
+}
+
+.actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.knowledge-select {
+  background: #21262d;
+  color: #c9d1d9;
+  border: 1px solid #30363d;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  min-width: 150px;
+}
+
+.knowledge-select:hover {
+  border-color: #58a6ff;
+}
+
+.btn-generate {
+  background: #238636;
+  color: white;
+  border: none;
+  padding: 10px 24px;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: background 0.2s;
+}
+
+.btn-generate:hover:not(:disabled) {
+  background: #2ea043;
+}
+
+.btn-generate:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.btn-generate.is-loading {
+  opacity: 0.7;
+  cursor: wait;
+}
+
+.loading-icon {
+  width: 16px;
+  height: 16px;
+  border: 2px solid #fff;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.main-content {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+/* 左侧题目列表 */
+.questions-section {
+  width: 320px;
+  background: #161b22;
+  border-right: 1px solid #30363d;
+  display: flex;
+  flex-direction: column;
+}
+
+.section-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid #30363d;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.section-title {
+  font-weight: 600;
+  color: #58a6ff;
+}
+
+.question-count {
+  font-size: 0.8rem;
+  color: #8b949e;
+}
+
+.questions-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+.question-card {
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.question-card:hover {
+  border-color: #58a6ff;
+}
+
+.question-card.active {
+  border-color: #58a6ff;
+  background: #161b22;
+}
+
+.question-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.question-number {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #c9d1d9;
+}
+
+.question-type {
+  font-size: 0.7rem;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.question-type.choice {
+  background: #1f3d5c;
+  color: #58a6ff;
+}
+
+.question-type.fill {
+  background: #3d1f5c;
+  color: #a371f7;
+}
+
+.question-type.judge {
+  background: #5c3d1f;
+  color: #f0883e;
+}
+
+.question-type.code {
+  background: #1f5c3d;
+  color: #3fb950;
+}
+
+/* 作答状态 - 空心圆/实心圆 */
+.answer-status {
+  margin-left: auto;
+  font-size: 0.9rem;
+  color: #6e7681;
+}
+
+.answer-status.answered {
+  color: #58a6ff;
+}
+
+.question-preview {
+  font-size: 0.8rem;
+  color: #8b949e;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.empty-state {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #8b949e;
+}
+
+.empty-icon {
+  font-size: 3rem;
+  margin-bottom: 16px;
+}
+
+/* 右侧答题区 */
+.answer-section {
+  flex: 1;
+  background: #0d1117;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.answer-panel {
+  padding: 24px;
+}
+
+.answer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.current-label {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #58a6ff;
+}
+
+.question-type-badge {
+  font-size: 0.8rem;
+  padding: 4px 12px;
+  border-radius: 4px;
+}
+
+.question-type-badge.choice {
+  background: #1f3d5c;
+  color: #58a6ff;
+}
+
+.question-type-badge.fill {
+  background: #3d1f5c;
+  color: #a371f7;
+}
+
+.question-type-badge.judge {
+  background: #5c3d1f;
+  color: #f0883e;
+}
+
+.question-type-badge.code {
+  background: #1f5c3d;
+  color: #3fb950;
+}
+
+.question-content {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 24px;
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+.options-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.option-item {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.option-item:hover {
+  border-color: #58a6ff;
+  background: #1f2d3a;
+}
+
+.option-item.selected {
+  border-color: #58a6ff;
+  background: #1f3d5c;
+}
+
+.option-item input {
+  display: none;
+}
+
+.option-letter {
+  width: 28px;
+  height: 28px;
+  background: #21262d;
+  border: 2px solid #30363d;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  font-size: 0.9rem;
+  color: #8b949e;
+  flex-shrink: 0;
+  transition: all 0.2s;
+}
+
+.option-item.selected .option-letter {
+  background: #58a6ff;
+  border-color: #58a6ff;
+  color: white;
+}
+
+.option-item:hover .option-letter {
+  border-color: #58a6ff;
+}
+
+.option-text {
+  font-size: 0.95rem;
+  flex: 1;
+}
+
+.fill-blank textarea {
+  width: 100%;
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  padding: 16px;
+  color: #c9d1d9;
+  font-size: 0.95rem;
+  resize: none;
+  outline: none;
+}
+
+.fill-blank textarea:focus {
+  border-color: #58a6ff;
+}
+
+/* 多选题样式 */
+.options-list.multi {
+  border: 1px dashed #30363d;
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.multi-hint {
+  color: #8b949e;
+  font-size: 0.85rem;
+  margin-bottom: 12px;
+  padding-left: 8px;
+}
+
+.option-checkbox {
+  font-size: 1.2rem;
+  color: #8b949e;
+  margin-right: 4px;
+}
+
+.option-item.selected .option-checkbox {
+  color: #58a6ff;
+}
+
+/* 简答题样式 */
+.short-answer {
+  position: relative;
+}
+
+.short-hint {
+  color: #f0883e;
+  font-size: 0.85rem;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  background: rgba(240, 136, 62, 0.1);
+  border-radius: 6px;
+  border-left: 3px solid #f0883e;
+}
+
+.short-answer textarea {
+  width: 100%;
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  padding: 16px;
+  color: #c9d1d9;
+  font-size: 0.95rem;
+  resize: none;
+  outline: none;
+}
+
+.short-answer textarea:focus {
+  border-color: #58a6ff;
+}
+
+.manual-hint {
+  color: #f0883e;
+  font-size: 0.85rem;
+  margin-left: 8px;
+}
+
+/* 判断题样式 */
+.judge-options {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.judge-item {
+  flex: 1;
+  background: #161b22;
+  border: 2px solid #30363d;
+  border-radius: 12px;
+  padding: 24px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.judge-item:hover {
+  border-color: #58a6ff;
+  background: #1f2d3a;
+}
+
+.judge-item.selected {
+  border-color: #58a6ff;
+  background: #1f3d5c;
+}
+
+.judge-icon {
+  font-size: 2.5rem;
+  font-weight: bold;
+}
+
+.judge-item.selected .judge-icon {
+  color: #58a6ff;
+}
+
+.judge-text {
+  font-size: 1.1rem;
+  font-weight: 500;
+}
+
+/* 代码题样式 */
+.code-input {
+  margin-bottom: 24px;
+}
+
+.code-textarea {
+  width: 100%;
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  padding: 16px;
+  color: #e6edf3;
+  font-family: 'Fira Code', 'Consolas', monospace;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  resize: vertical;
+  outline: none;
+}
+
+.code-textarea:focus {
+  border-color: #58a6ff;
+}
+
+.nav-buttons {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.btn-nav {
+  flex: 1;
+  background: #21262d;
+  color: #c9d1d9;
+  border: 1px solid #30363d;
+  padding: 10px 20px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-nav:hover:not(:disabled) {
+  background: #30363d;
+}
+
+.btn-nav:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-submit-all {
+  width: 100%;
+  background: #238636;
+  color: white;
+  border: none;
+  padding: 14px;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.btn-submit-all:hover:not(:disabled) {
+  background: #2ea043;
+}
+
+.btn-submit-all:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-submit-all.is-loading {
+  opacity: 0.7;
+  cursor: wait;
+}
+
+/* 结果面板 */
+.result-panel {
+  padding: 24px;
+}
+
+.result-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.ai-badge {
+  background: #1f3d5c;
+  color: #58a6ff;
+  padding: 6px 16px;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.close-btn {
+  background: transparent;
+  color: #8b949e;
+  border: 1px solid #30363d;
+  padding: 6px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.close-btn:hover {
+  background: #21262d;
+  color: #c9d1d9;
+}
+
+.score-summary {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  margin-bottom: 32px;
+  padding: 24px;
+  background: #161b22;
+  border-radius: 12px;
+}
+
+.score-circle {
+  width: 100px;
+  height: 100px;
+  border: 5px solid #238636;
+  border-radius: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.score {
+  font-size: 2.2rem;
+  font-weight: bold;
+}
+
+.unit {
+  font-size: 0.8rem;
+  color: #8b949e;
+}
+
+.score-info {
+  font-size: 0.95rem;
+  color: #8b949e;
+}
+
+.score-info p {
+  margin: 4px 0;
+}
+
+.detailed-results {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.result-item {
+  background: #161b22;
+  border-radius: 8px;
+  padding: 16px;
+  border-left: 4px solid #30363d;
+}
+
+.result-item.correct {
+  border-left-color: #238636;
+}
+
+.result-item.wrong {
+  border-left-color: #f85149;
+}
+
+.result-question {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.result-number {
+  font-weight: 600;
+  color: #c9d1d9;
+}
+
+.result-status {
+  font-size: 0.85rem;
+}
+
+.result-item.correct .result-status {
+  color: #238636;
+}
+
+.result-item.wrong .result-status {
+  color: #f85149;
+}
+
+/* 代码题评分等级样式 */
+.level-excellent {
+  color: #22c55e;
+  font-weight: bold;
+}
+
+.level-good {
+  color: #3b82f6;
+  font-weight: bold;
+}
+
+.level-pass {
+  color: #eab308;
+  font-weight: bold;
+}
+
+.level-fail {
+  color: #ef4444;
+  font-weight: bold;
+}
+
+.code-score {
+  color: #8b949e;
+  font-size: 0.8rem;
+  margin-left: 4px;
+}
+
+.result-content {
+  font-size: 0.9rem;
+}
+
+.result-q {
+  color: #c9d1d9;
+  margin-bottom: 8px;
+}
+
+.result-answer, .result-correct {
+  margin: 8px 0;
+  color: #8b949e;
+}
+
+.label {
+  color: #6e7681;
+  margin-right: 8px;
+}
+
+.wrong-text {
+  color: #f85149;
+}
+
+.correct-text {
+  color: #238636;
+}
+
+.result-explanation {
+  background: #0d1117;
+  padding: 12px;
+  border-radius: 6px;
+  margin-top: 12px;
+  color: #8b949e;
+}
+
+/* 引导区 */
+.guide-section {
+  padding: 24px;
+}
+
+.guide-section h3 {
+  color: #58a6ff;
+  margin-bottom: 20px;
+}
+
+.guide-card {
+  background: #161b22;
+  padding: 20px;
+  border-radius: 8px;
+  border: 1px solid #30363d;
+  margin-bottom: 20px;
+}
+
+.guide-card h4 {
+  color: #c9d1d9;
+  margin-bottom: 12px;
+}
+
+.guide-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  color: #8b949e;
+  font-size: 0.9rem;
+}
+
+.guide-list li {
+  margin-bottom: 10px;
+  padding-left: 8px;
+}
+
+.tip-box {
+  background: #1f3d5c;
+  padding: 16px;
+  border-radius: 8px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.icon-info {
+  font-size: 1.2rem;
+}
+
+.tip-box p {
+  color: #8b949e;
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+/* 动画 */
+.fade-slide-enter-active,
+.fade-slide-leave-active {
+  transition: all 0.3s ease;
+}
+
+.fade-slide-enter-from {
+  opacity: 0;
+  transform: translateX(20px);
+}
+
+.fade-slide-leave-to {
+  opacity: 0;
+  transform: translateX(-20px);
+}
+
+/* 评分进度 */
+.grading-progress {
+  margin-top: 16px;
+  padding: 16px;
+  background: #161b22;
+  border-radius: 8px;
+  border: 1px solid #30363d;
+}
+
+.progress-bar {
+  height: 8px;
+  background: #21262d;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #238636, #2ea043);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.progress-text {
+  color: #8b949e;
+  font-size: 0.85rem;
+  text-align: center;
+  margin: 0;
+}
 </style>
